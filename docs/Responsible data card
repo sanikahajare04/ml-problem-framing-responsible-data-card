@@ -1,0 +1,108 @@
+# Responsible Data Card — Customer Churn Training Data
+
+## 1. Summary
+
+| Field | Value |
+|---|---|
+| Dataset name | `customer_churn_training.csv` |
+| Rows / columns (sample provided) | 12 rows × 7 columns |
+| Unit of observation | One row per customer, snapshot in time |
+| Intended use | Training/evaluating a churn-risk baseline to prioritize retention outreach |
+| **Out-of-scope uses** | Pricing decisions, credit/eligibility decisions, employment-adjacent scoring, or any use where a customer is denied a service based on this score |
+
+## 2. Schema
+
+| Column | Type | Description | Notes / risks |
+|---|---|---|---|
+| `customer_id` | string | Unique customer identifier | Direct identifier — must be excluded from model features and hashed/pseudonymized in any exported dataset |
+| `tenure_months` | int | Months since signup | |
+| `support_tickets` | int | Count of support tickets (window undefined) | Time window not specified in source — could leak post-outcome information if tickets include cancellation requests (see Section 5) |
+| `monthly_spend_inr` | int | Monthly spend in INR | Proxy for plan tier / income — treat as sensitive-adjacent |
+| `last_login_days` | int | Days since last login | |
+| `plan_type` | categorical (Basic/Standard/Pro) | Subscription tier | Correlates strongly with spend; potential proxy for income bracket |
+| `churned` | binary | Label: 1 = churned, 0 = retained | **Definition not documented in source** — must be confirmed (see below) |
+
+## 3. Provenance
+
+- **Source:** provided as a static CSV starter file for this exercise; no accompanying
+  documentation on collection method, system of record, or extraction date.
+- **Unresolved before real use:** collection system (billing DB? CRM? support
+  platform join?), extraction date, and whether this is a full population or a
+  sample (12 rows strongly suggests a **teaching sample**, not production data —
+  treat all metrics in the accompanying baseline notebook as illustrative only,
+  not a claim about real-world model performance).
+- **Label provenance:** unknown. Before training on real data, confirm who assigns
+  the `churned` label, at what point in the customer lifecycle, and whether it is
+  applied consistently across plan types and time periods.
+
+## 4. Consent and purpose limitation
+
+- No consent documentation is attached to this sample. Before using real customer
+  data for this purpose, confirm:
+  - Whether the original privacy notice/terms of service at signup covers
+    "predictive analytics for retention marketing" as a use of behavioral data
+    (login activity, support interactions).
+  - Whether any customers have exercised opt-out/deletion rights that should
+    exclude them from this training set.
+  - Retention limits: how long derived churn scores and features may be stored.
+
+## 5. Sensitive attributes and proxies
+
+- No directly protected attributes (race, gender, age, religion, disability, etc.)
+  are present in this schema.
+- **Indirect proxy risk:** `plan_type` and `monthly_spend_inr` can act as a proxy
+  for socioeconomic status. If plan tier correlates with a protected characteristic
+  in the real customer base (plausible depending on geography/marketing channel),
+  a model trained on these features could produce disparate outreach or disparate
+  false-negative rates by group without ever "seeing" the protected attribute.
+  **Mitigation:** run subgroup performance checks (Section 4 of the framing memo)
+  before launch, and re-run periodically.
+
+## 6. Missingness
+
+- The sample has **no missing values** in any column. This is unlikely to hold in
+  real production data — before training, define a missingness policy for at least:
+  - `last_login_days` for customers who never logged in (is this 0, null, or a
+    large sentinel value?).
+  - `support_tickets` for customers with no support history.
+  - Establish whether missingness itself is informative (e.g., "never logged in"
+    may be a stronger churn signal than any observed value) rather than simply
+    imputing it away.
+
+## 7. Leakage risks
+
+This is the most important open risk for this dataset:
+
+1. **Temporal leakage:** `support_tickets` and `last_login_days` are not tied to an
+   explicit observation window. If these counts include activity *after* the
+   customer decided to churn (e.g., a cancellation-request ticket, or the customer
+   simply stopping logins once they've already decided to leave), the model would
+   be trained on the outcome's own aftermath rather than a genuine early-warning
+   signal. **Action required:** confirm with the data owner that all features are
+   computed as of a fixed cutoff date *before* the action window described in the
+   framing memo (T-30 days), not at the moment of cancellation.
+2. **Label leakage via plan changes:** if a customer downgrades before cancelling
+   and `plan_type` reflects the downgraded plan rather than their plan during the
+   observation window, the feature is capturing part of the outcome.
+3. **Small-sample overfitting risk (not leakage, but adjacent):** with 12 rows, any
+   model will appear to fit "perfectly" (see baseline notebook) — this is a sample-
+   size artifact, not evidence of a production-ready model, and must not be
+   reported as such.
+
+## 8. Known limitations of this sample
+
+- Too small for any statistically meaningful train/test split; used here only to
+  exercise the pipeline and baseline-comparison methodology.
+- Class balance in the sample (7 retained / 5 churned) is not necessarily
+  representative of true churn base rates and should not be used to set
+  intervention capacity or budget assumptions.
+- Single geography/currency (INR) assumed; no locale or currency metadata field
+  is present if this is ever pooled with other markets.
+
+## 9. Intended use statement
+
+This dataset (and any model trained on an expanded version of it) is intended
+**only** to rank existing, currently active subscribers for proactive, opt-out-
+respecting retention outreach. It is not intended, and must not be repurposed, for
+pricing, credit, employment, or any adverse eligibility decision about an
+individual.
